@@ -1,20 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Vanilla Frontend</title>
-  <link rel="stylesheet" href="css/main.css">
-</head>
-<body>
-  <h1>Vanilla Frontend</h1>
-  <nav>
-    <a href="#home">Главная</a>
-    <a href="#page1">Page 1</a>
-  </nav>
-  <div id="app"></div>
-  <script src="js/main.js"></script>
-  <script>
-    await render();
-  </script>
-</body>
-</html> 
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vanilla Frontend</title>
+    <link rel="stylesheet" href="css/main.css" />
+  </head>
+  <body>
+    <h1>Vanilla Frontend</h1>
+    <nav>
+      <a href="#home">Главная</a>
+      <a href="#page1">Page 1</a>
+      <a href="#individuals">Физические лица</a>
+    </nav>
+    <div id="app"></div>
+    <script src="js/main.js"></script>
+    <script>
+      (async function () {
+        await render();
+      });
+    </script>
+  </body>
+</html>
