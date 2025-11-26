@@ -47,6 +47,7 @@ function debounce(func, wait) {
 let currentPage = 1;
 const pageSize = 5;
 let totalItems = 0;
+let currentData = [];
 
 // 🔧 Поиск
 let currentSearchTerm = "";
@@ -55,7 +56,8 @@ let currentSearchTerm = "";
 let sortField = "insertdate";
 let sortDirection = "desc";
 
-async function createIndividualsPage() {
+// 🔥 ОСНОВНАЯ ФУНКЦИЯ СОЗДАНИЯ СТРАНИЦЫ - ДОЛЖНА БЫТЬ ГЛОБАЛЬНОЙ
+function createIndividualsPage() {
   console.log("Инициализация страницы физлиц...");
 
   const pageContainer = document.createElement("div");
@@ -216,16 +218,16 @@ async function createIndividualsPage() {
   table.innerHTML = `
     <thead>
       <tr>
-        <th style="background: #2c3e50; color: white; padding: 12px 8px; font-weight: 600; font-size: 13px; text-align: left; border: none; cursor: pointer;" onclick="sortTable('code')">
+        <th style="background: #2c3e50; color: white; padding: 12px 8px; font-weight: 600; font-size: 13px; text-align: left; border: none; cursor: pointer;" data-sort="code">
           ИИН ↕
         </th>
-        <th style="background: #2c3e50; color: white; padding: 12px 8px; font-weight: 600; font-size: 13px; text-align: left; border: none; cursor: pointer;" onclick="sortTable('represent')">
+        <th style="background: #2c3e50; color: white; padding: 12px 8px; font-weight: 600; font-size: 13px; text-align: left; border: none; cursor: pointer;" data-sort="represent">
           ФИО ↕
         </th>
         <th style="background: #2c3e50; color: white; padding: 12px 8px; font-weight: 600; font-size: 13px; text-align: left; border: none;">Фамилия</th>
         <th style="background: #2c3e50; color: white; padding: 12px 8px; font-weight: 600; font-size: 13px; text-align: left; border: none;">Имя</th>
         <th style="background: #2c3e50; color: white; padding: 12px 8px; font-weight: 600; font-size: 13px; text-align: left; border: none;">Отчество</th>
-        <th style="background: #2c3e50; color: white; padding: 12px 8px; font-weight: 600; font-size: 13px; text-align: left; border: none; cursor: pointer;" onclick="sortTable('insertdate')">
+        <th style="background: #2c3e50; color: white; padding: 12px 8px; font-weight: 600; font-size: 13px; text-align: left; border: none; cursor: pointer;" data-sort="insertdate">
           Дата создания ↕
         </th>
         <th style="background: #2c3e50; color: white; padding: 12px 8px; font-weight: 600; font-size: 13px; text-align: left; border: none; width: 150px;">Действия</th>
@@ -281,6 +283,7 @@ function initializeAfterDOMReady() {
     setupForm();
     setupSearch();
     setupControls();
+    setupSorting();
   } else {
     console.error(
       "❌ Критические элементы не найдены в DOM, повторяем через 500мс"
@@ -307,6 +310,17 @@ function setupControls() {
       loadIndividuals();
     });
   }
+}
+
+// 🔄 НАСТРОЙКА СОРТИРОВКИ
+function setupSorting() {
+  const sortHeaders = document.querySelectorAll("th[data-sort]");
+  sortHeaders.forEach((header) => {
+    header.addEventListener("click", () => {
+      const field = header.getAttribute("data-sort");
+      sortTable(field);
+    });
+  });
 }
 
 // 🔍 НАСТРОЙКА ПОИСКА
@@ -351,62 +365,72 @@ function setupSearch() {
 }
 
 // 📊 ЗАГРУЗКА ДАННЫХ
-let currentData = [];
-
 async function loadIndividuals() {
   try {
     const loadingDiv = document.getElementById("individualsLoading");
     const table = document.getElementById("individualsTable");
     const tbody = document.getElementById("individualsBody");
-    const showDeleted =
-      document.getElementById("showDeleted")?.checked || false;
 
     if (!loadingDiv || !table || !tbody) {
       console.error("❌ Элементы таблицы не найдены в DOM");
       return;
     }
 
+    console.log("📥 Начинаем загрузку данных...");
+
+    // Принудительно показываем загрузку
     loadingDiv.style.display = "block";
     loadingDiv.textContent = "Загрузка данных...";
     table.style.display = "none";
-
-    console.log("Загружаем физлиц...", {
-      showDeleted,
-      search: currentSearchTerm,
-      page: currentPage,
-      pageSize: pageSize,
-    });
+    tbody.innerHTML = ""; // Очищаем таблицу
 
     // Формируем URL с параметрами
     const params = new URLSearchParams();
+    const showDeleted =
+      document.getElementById("showDeleted")?.checked || false;
+
     if (showDeleted) params.append("deleted", "true");
     if (currentSearchTerm) params.append("search", currentSearchTerm);
     params.append("page", currentPage);
     params.append("limit", pageSize);
+    params.append("_t", Date.now());
 
     const url = `/api/individuals?${params.toString()}`;
+    console.log("🌐 Запрос к:", url);
+
     const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    console.log("📨 Ответ получен, статус:", response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ Тело ошибки:", errorText);
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
 
     const result = await response.json();
-    console.log("Результат API:", result);
+    console.log("📊 Результат API:", result);
 
     if (result.success) {
       currentData = result.data;
       totalItems = result.pagination?.total || result.data.length;
+
+      console.log("✅ Данные получены:", currentData);
+
       sortData();
       renderTable();
       renderPagination();
 
       loadingDiv.style.display = "none";
       table.style.display = "table";
-      console.log("Данные получены:", currentData.length, "записей");
+
+      console.log("🎉 Таблица должна быть обновлена");
     } else {
+      console.error("❌ Ошибка в ответе API:", result.error);
       loadingDiv.textContent =
-        "Ошибка загрузки данных: " + (result.error || "Неизвестная ошибка");
+        "Ошибка загрузки: " + (result.error || "Неизвестная ошибка");
     }
   } catch (error) {
-    console.error("Error loading individuals:", error);
+    console.error("❌ Ошибка загрузки:", error);
     const loadingDiv = document.getElementById("individualsLoading");
     if (loadingDiv) {
       loadingDiv.textContent = "Ошибка загрузки: " + error.message;
@@ -491,8 +515,8 @@ function sortTable(field) {
 
 function sortData() {
   currentData.sort((a, b) => {
-    let aValue = a[`cat2__${sortField}`];
-    let bValue = b[`cat2__${sortField}`];
+    let aValue = a[`cat2_${sortField}`];
+    let bValue = b[`cat2_${sortField}`];
 
     if (sortField === "insertdate") {
       aValue = new Date(aValue);
@@ -508,9 +532,15 @@ function sortData() {
 // 🎨 ОТРИСОВКА ТАБЛИЦЫ
 function renderTable() {
   const tbody = document.getElementById("individualsBody");
-  if (!tbody) return;
+  if (!tbody) {
+    console.error("❌ tbody не найден!");
+    return;
+  }
+
+  console.log("🎨 renderTable вызван, данные:", currentData);
 
   if (currentData.length === 0) {
+    console.log("📭 Нет данных для отображения");
     tbody.innerHTML = `
       <tr>
         <td colspan="7" style="text-align: center; padding: 30px; color: #7f8c8d; font-style: italic;">
@@ -523,49 +553,51 @@ function renderTable() {
       </tr>
     `;
   } else {
-    tbody.innerHTML = currentData
+    console.log("📊 Отрисовываем", currentData.length, "записей");
+
+    const tableHTML = currentData
       .map(
         (individual) => `
       <tr style="transition: background-color 0.2s;" 
           onmouseenter="this.style.backgroundColor='#f8f9fa'" 
           onmouseleave="this.style.backgroundColor=''">
         <td style="border-bottom: 1px solid #ecf0f1; padding: 10px 8px; font-size: 13px; font-family: 'Courier New', monospace;">
-          ${individual.cat2__code}
+          ${individual.cat2_code}
         </td>
         <td style="border-bottom: 1px solid #ecf0f1; padding: 10px 8px; font-size: 13px; font-weight: 500;">
-          ${individual.cat2__represent}
+          ${individual.cat2_represent}
         </td>
         <td style="border-bottom: 1px solid #ecf0f1; padding: 10px 8px; font-size: 13px;">
-          ${individual.cat2__surname}
+          ${individual.cat2_surname}
         </td>
         <td style="border-bottom: 1px solid #ecf0f1; padding: 10px 8px; font-size: 13px;">
-          ${individual.cat2__name}
+          ${individual.cat2_name}
         </td>
         <td style="border-bottom: 1px solid #ecf0f1; padding: 10px 8px; font-size: 13px;">
-          ${individual.cat2__patronymic || "-"}
+          ${individual.cat2_patronymic || "-"}
         </td>
         <td style="border-bottom: 1px solid #ecf0f1; padding: 10px 8px; font-size: 13px; color: #7f8c8d;">
-          ${formatDate(individual.cat2__insertdate)}
+          ${formatDate(individual.cat2_insertdate)}
           ${
-            individual.cat2__updatedate !== individual.cat2__insertdate
+            individual.cat2_updatedate !== individual.cat2_insertdate
               ? `<br><small style="color: #3498db;">изм: ${formatDate(
-                  individual.cat2__updatedate
+                  individual.cat2_updatedate
                 )}</small>`
               : ""
           }
         </td>
         <td style="border-bottom: 1px solid #ecf0f1; padding: 10px 8px;">
           <div style="display: flex; gap: 5px;">
-            <button onclick="openEditModal('${individual.cat2__uuid}')" 
+            <button onclick="openEditModal('${individual.cat2_uuid}')" 
                     style="background: #3498db; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">
               ✏️
             </button>
             ${
-              individual.cat2__deleted
-                ? `<button onclick="restoreIndividual('${individual.cat2__uuid}')" style="background: #27ae60; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">
+              individual.cat2_deleted
+                ? `<button onclick="restoreIndividual('${individual.cat2_uuid}')" style="background: #27ae60; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">
                    ↩️
                  </button>`
-                : `<button onclick="deleteIndividual('${individual.cat2__uuid}')" style="background: #e74c3c; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">
+                : `<button onclick="deleteIndividual('${individual.cat2_uuid}')" style="background: #e74c3c; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">
                    🗑️
                  </button>`
             }
@@ -575,6 +607,10 @@ function renderTable() {
     `
       )
       .join("");
+
+    console.log("📝 HTML таблицы сгенерирован");
+    tbody.innerHTML = tableHTML;
+    console.log("✅ Таблица отрисована");
   }
 }
 
@@ -609,7 +645,7 @@ async function restoreIndividual(uuid) {
     return;
 
   try {
-    const response = await fetch(`/api/individuals/${uuid}/restore`, {
+    const response = await fetch(`/api/individuals/${uuid}`, {
       method: "PATCH",
     });
 
@@ -689,7 +725,7 @@ function showEditModal(individual) {
         <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #2c3e50; font-size: 13px;">
           ИИН (12 цифр):
         </label>
-        <input type="text" id="editCode" value="${individual.cat2__code}" 
+        <input type="text" id="editCode" value="${individual.cat2_code}" 
                maxlength="12" required readonly
                style="width: 100%; padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 6px; font-size: 14px; background: #f8f9fa;">
         <div id="editCodeError" style="color: #e74c3c; margin-top: 5px; font-size: 12px;"></div>
@@ -699,7 +735,7 @@ function showEditModal(individual) {
         <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #2c3e50; font-size: 13px;">
           Фамилия:
         </label>
-        <input type="text" id="editSurname" value="${individual.cat2__surname}" 
+        <input type="text" id="editSurname" value="${individual.cat2_surname}" 
                required style="width: 100%; padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 6px; font-size: 14px;">
         <div id="editSurnameError" style="color: #e74c3c; margin-top: 5px; font-size: 12px;"></div>
       </div>
@@ -708,7 +744,7 @@ function showEditModal(individual) {
         <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #2c3e50; font-size: 13px;">
           Имя:
         </label>
-        <input type="text" id="editName" value="${individual.cat2__name}" 
+        <input type="text" id="editName" value="${individual.cat2_name}" 
                required style="width: 100%; padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 6px; font-size: 14px;">
         <div id="editNameError" style="color: #e74c3c; margin-top: 5px; font-size: 12px;"></div>
       </div>
@@ -718,7 +754,7 @@ function showEditModal(individual) {
           Отчество:
         </label>
         <input type="text" id="editPatronymic" value="${
-          individual.cat2__patronymic || ""
+          individual.cat2_patronymic || ""
         }" 
                style="width: 100%; padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 6px; font-size: 14px;">
         <div id="editPatronymicError" style="color: #e74c3c; margin-top: 5px; font-size: 12px;"></div>
@@ -768,7 +804,7 @@ function showEditModal(individual) {
   // Отправка формы
   document.getElementById("editForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    await updateIndividual(individual.cat2__uuid);
+    await updateIndividual(individual.cat2_uuid);
   });
 
   // Закрытие модального окна
@@ -948,6 +984,14 @@ async function createIndividual() {
     const patronymicInput = document.getElementById("patronymic");
     const messageDiv = document.getElementById("formMessage");
 
+    console.log("🔍 Элементы формы:", {
+      codeInput: !!codeInput,
+      surnameInput: !!surnameInput,
+      nameInput: !!nameInput,
+      patronymicInput: !!patronymicInput,
+      messageDiv: !!messageDiv
+    });
+
     if (!codeInput || !surnameInput || !nameInput || !messageDiv) {
       console.error("❌ Элементы формы не найдены");
       isCreating = false;
@@ -972,6 +1016,7 @@ async function createIndividual() {
       : null;
 
     if (iinError || surnameError || nameError || patronymicError) {
+      console.log("❌ Ошибки валидации:", { iinError, surnameError, nameError, patronymicError });
       messageDiv.style.color = "#e74c3c";
       messageDiv.textContent = "Исправьте ошибки в форме перед отправкой";
       isCreating = false;
@@ -982,38 +1027,55 @@ async function createIndividual() {
     messageDiv.style.color = "#3498db";
     messageDiv.textContent = "Отправка данных...";
 
-    const response = await fetch("/api/individuals", {
+    console.log("🌐 Отправляю fetch запрос на /api/individuals...");
+    
+    const fetchOptions = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
       },
       body: JSON.stringify(formData),
-    });
+    };
 
-    console.log("Response status:", response.status);
+    console.log("📦 Fetch options:", fetchOptions);
+
+    const response = await fetch("/api/individuals", fetchOptions);
+
+    console.log("📨 Response status:", response.status);
+    console.log("📨 Response ok:", response.ok);
+    console.log("📨 Response headers:", Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const errorText = await response.text();
+      console.error("❌ Response error text:", errorText);
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
 
     const result = await response.json();
-    console.log("📥 Ответ сервера:", result);
+    console.log("📥 Полный ответ сервера:", result);
 
     if (result.success) {
+      console.log("✅ Успешно создано физлицо:", result.data);
       messageDiv.style.color = "#27ae60";
       messageDiv.textContent = "✅ Физическое лицо успешно добавлено!";
       document.getElementById("individualForm").reset();
 
-      await loadIndividuals();
-      console.log("✅ Таблица обновлена!");
+      // 🔄 ПЕРЕЗАГРУЗКА С ЗАДЕРЖКОЙ ДЛЯ СИНХРОНИЗАЦИИ БД
+      setTimeout(async () => {
+        console.log("🔄 Перезагружаем таблицу...");
+        await loadIndividuals();
+        console.log("✅ Таблица обновлена после создания!");
+      }, 500);
     } else {
+      console.error("❌ Ошибка от сервера:", result.error);
       messageDiv.style.color = "#e74c3c";
-      messageDiv.textContent =
-        "❌ Ошибка: " + (result.error || "Неизвестная ошибка");
+      messageDiv.textContent = "❌ Ошибка: " + (result.error || "Неизвестная ошибка");
     }
   } catch (error) {
     console.error("❌ CATCH ERROR:", error);
+    console.error("❌ Error stack:", error.stack);
+    
     const messageDiv = document.getElementById("formMessage");
     if (messageDiv) {
       messageDiv.style.color = "#e74c3c";
@@ -1021,10 +1083,11 @@ async function createIndividual() {
     }
   } finally {
     isCreating = false;
+    console.log("🏁 createIndividual завершён");
   }
 }
 
-// Экспортируем функции
+// 🔥 ГЛОБАЛЬНЫЙ ЭКСПОРТ ФУНКЦИЙ
 window.createIndividualsPage = createIndividualsPage;
 window.initIndividualsFunctionality = initIndividualsFunctionality;
 window.deleteIndividual = deleteIndividual;

@@ -1,9 +1,33 @@
 // backend/controllers/api.js
 const { query } = require("../db/pg");
 
+// ✅ PING функция
+function ping(req, res) {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ pong: true }));
+}
+
+// ✅ DB TEST функция
+function dbTest(req, res, env) {
+  const { getPgSocket } = require("../db/pg");
+  getPgSocket(env, (err, socket) => {
+    if (err) {
+      res.writeHead(500);
+      res.end("DB connection error: " + err.message);
+      return;
+    }
+    res.writeHead(200);
+    res.end("Connected to DB!");
+    socket.end();
+  });
+}
+
 // 🔧 Утилиты
 function buildWhereClause(filters) {
-  const conditions = ["cat2__deleted = false"];
+  const conditions =
+    filters.deleted === "true"
+      ? ["cat2__deleted = true"]
+      : ["cat2__deleted = false"];
   const params = [];
   let paramCount = 0;
 
@@ -17,10 +41,6 @@ function buildWhereClause(filters) {
       cat2__patronymic ILIKE $${paramCount}
     )`);
     params.push(`%${filters.search}%`);
-  }
-
-  if (filters.deleted === "true") {
-    conditions.push("cat2__deleted = true");
   }
 
   return {
@@ -55,14 +75,21 @@ async function getIndividuals(req, res) {
     const pagination = buildPagination(page, limit);
 
     const dataQuery = `
-      SELECT cat2__uuid, cat2__code, cat2__represent, 
-             cat2__surname, cat2__name, cat2__patronymic,
-             cat2__insertdate, cat2__updatedate, cat2__deleted
-      FROM cat2__individuals 
-      ${whereClause.where}
-      ORDER BY cat2__insertdate DESC
-      ${pagination.limit} ${pagination.offset}
-    `;
+  SELECT 
+    cat2__uuid as "cat2_uuid", 
+    cat2__code as "cat2_code", 
+    cat2__represent as "cat2_represent", 
+    cat2__surname as "cat2_surname", 
+    cat2__name as "cat2_name", 
+    cat2__patronymic as "cat2_patronymic",
+    cat2__insertdate as "cat2_insertdate", 
+    cat2__updatedate as "cat2_updatedate", 
+    cat2__deleted as "cat2_deleted"
+  FROM cat2__individuals 
+  ${whereClause.where}
+  ORDER BY cat2__insertdate DESC
+  ${pagination.limit} ${pagination.offset}
+`;
 
     // Получаем общее количество для пагинации
     const countQuery = `
@@ -101,7 +128,8 @@ async function getIndividuals(req, res) {
     res.end(
       JSON.stringify({
         success: false,
-        error: "Internal server error",
+        error: error.message,
+        details: "Проверьте имена таблиц и колонок в базе данных",
       })
     );
   }
@@ -114,11 +142,18 @@ async function getIndividual(req, res) {
     console.log("Getting individual:", uuid);
 
     const result = await query(
-      `SELECT cat2__uuid, cat2__code, cat2__represent, 
-              cat2__surname, cat2__name, cat2__patronymic,
-              cat2__insertdate, cat2__updatedate, cat2__deleted
-       FROM cat2__individuals 
-       WHERE cat2__uuid = $1`,
+      `SELECT 
+    cat2__uuid as "cat2_uuid", 
+    cat2__code as "cat2_code", 
+    cat2__represent as "cat2_represent", 
+    cat2__surname as "cat2_surname", 
+    cat2__name as "cat2_name", 
+    cat2__patronymic as "cat2_patronymic",
+    cat2__insertdate as "cat2_insertdate", 
+    cat2__updatedate as "cat2_updatedate", 
+    cat2__deleted as "cat2_deleted"
+   FROM cat2__individuals 
+   WHERE cat2__uuid = $1`,
       [uuid]
     );
 
@@ -145,7 +180,7 @@ async function getIndividual(req, res) {
     res.end(
       JSON.stringify({
         success: false,
-        error: "Internal server error",
+        error: "Internal server error: " + error.message,
       })
     );
   }
@@ -154,32 +189,31 @@ async function getIndividual(req, res) {
 // ✅ СОЗДАНИЕ ФИЗЛИЦА
 async function createIndividual(req, res) {
   console.log("🎯 createIndividual API CALLED!");
+  console.log("🔍 URL:", req.url);
+  console.log("🔍 Method:", req.method);
+  console.log("📦 Тело запроса из router:", req.body);
 
   try {
-    let body = "";
+    const { code, surname, name, patronymic } = req.body;
 
-    for await (const chunk of req) {
-      body += chunk.toString();
-    }
+    console.log("📊 Распарсенные данные:", { code, surname, name, patronymic });
 
-    console.log("Request body:", body);
-
-    if (!body) {
+    // Проверяем что данные есть
+    if (!code || !surname || !name) {
+      console.log("❌ Отсутствуют обязательные поля");
       res.writeHead(400, { "Content-Type": "application/json" });
       return res.end(
         JSON.stringify({
           success: false,
-          error: "Empty request body",
+          error: "Необходимы код, фамилия и имя",
         })
       );
     }
 
-    const { code, surname, name, patronymic } = JSON.parse(body);
-
-    console.log("Parsed data:", { code, surname, name, patronymic });
+    console.log("✅ Данные валидны, продолжаем...");
 
     // Валидация
-    if (!code || code.length !== 12) {
+    if (code.length !== 12) {
       res.writeHead(400, { "Content-Type": "application/json" });
       return res.end(
         JSON.stringify({
@@ -199,23 +233,15 @@ async function createIndividual(req, res) {
       );
     }
 
-    if (!surname || !name) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      return res.end(
-        JSON.stringify({
-          success: false,
-          error: "Фамилия и имя обязательны",
-        })
-      );
-    }
-
     // Проверка уникальности ИИН
+    console.log("🔍 Проверяем уникальность ИИН:", code);
     const existing = await query(
       "SELECT cat2__uuid FROM cat2__individuals WHERE cat2__code = $1 AND cat2__deleted = false",
       [code]
     );
 
     if (existing.rows.length > 0) {
+      console.log("❌ ИИН уже существует");
       res.writeHead(400, { "Content-Type": "application/json" });
       return res.end(
         JSON.stringify({
@@ -226,17 +252,25 @@ async function createIndividual(req, res) {
     }
 
     const represent = `${surname} ${name} ${patronymic || ""}`.trim();
+    console.log("📝 Формируем represent:", represent);
 
     // Вставляем в базу
+    console.log("💾 Вставляем в БД...");
     const result = await query(
       `INSERT INTO cat2__individuals 
-       (cat2__code, cat2__represent, cat2__surname, cat2__name, cat2__patronymic) 
-       VALUES ($1, $2, $3, $4, $5) 
-       RETURNING cat2__uuid, cat2__code, cat2__represent, cat2__surname, cat2__name, cat2__patronymic`,
+   (cat2__code, cat2__represent, cat2__surname, cat2__name, cat2__patronymic) 
+   VALUES ($1, $2, $3, $4, $5) 
+   RETURNING 
+     cat2__uuid as "cat2_uuid", 
+     cat2__code as "cat2_code", 
+     cat2__represent as "cat2_represent", 
+     cat2__surname as "cat2_surname", 
+     cat2__name as "cat2_name", 
+     cat2__patronymic as "cat2_patronymic"`,
       [code, represent, surname, name, patronymic]
     );
 
-    console.log("Insert successful:", result.rows[0]);
+    console.log("✅ Insert successful:", result.rows[0]);
 
     res.writeHead(201, { "Content-Type": "application/json" });
     res.end(
@@ -247,6 +281,7 @@ async function createIndividual(req, res) {
     );
   } catch (error) {
     console.error("❌ Error in createIndividual:", error);
+    console.error("Stack:", error.stack);
     res.writeHead(500, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
@@ -260,31 +295,14 @@ async function createIndividual(req, res) {
 // ✅ ОБНОВЛЕНИЕ ФИЗЛИЦА
 async function updateIndividual(req, res) {
   console.log("🔄 updateIndividual API CALLED!");
+  console.log("📦 Тело запроса:", req.body);
 
   try {
     const uuid = req.url.split("/").pop();
-    let body = "";
+    const { surname, name, patronymic } = req.body;
 
-    for await (const chunk of req) {
-      body += chunk.toString();
-    }
-
-    console.log("Update body:", body);
     console.log("UUID:", uuid);
-
-    if (!body) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      return res.end(
-        JSON.stringify({
-          success: false,
-          error: "Empty request body",
-        })
-      );
-    }
-
-    const { surname, name, patronymic } = JSON.parse(body);
-
-    console.log("Parsed update data:", { surname, name, patronymic });
+    console.log("Данные для обновления:", { surname, name, patronymic });
 
     // Валидация
     if (!surname || surname.length < 2) {
@@ -322,13 +340,21 @@ async function updateIndividual(req, res) {
     // Обновляем в базе с обновлением updatedate
     const result = await query(
       `UPDATE cat2__individuals 
-       SET cat2__represent = $1, 
-           cat2__surname = $2, 
-           cat2__name = $3, 
-           cat2__patronymic = $4,
-           cat2__updatedate = NOW()
-       WHERE cat2__uuid = $5
-       RETURNING cat2__uuid, cat2__code, cat2__represent, cat2__surname, cat2__name, cat2__patronymic, cat2__updatedate`,
+   SET 
+     cat2__represent = $1, 
+     cat2__surname = $2, 
+     cat2__name = $3, 
+     cat2__patronymic = $4,
+     cat2__updatedate = NOW()
+   WHERE cat2__uuid = $5
+   RETURNING 
+     cat2__uuid as "cat2_uuid", 
+     cat2__code as "cat2_code", 
+     cat2__represent as "cat2_represent", 
+     cat2__surname as "cat2_surname", 
+     cat2__name as "cat2_name", 
+     cat2__patronymic as "cat2_patronymic", 
+     cat2__updatedate as "cat2_updatedate"`,
       [represent, surname, name, patronymic, uuid]
     );
 
@@ -372,7 +398,10 @@ async function softDeleteIndividual(req, res) {
 
     const result = await query(
       `UPDATE cat2__individuals 
-       SET cat2__deleted = true, cat2__deletedate = NOW(), cat2__updatedate = NOW()
+       SET 
+         cat2__deleted = true, 
+         cat2__deletedate = NOW(), 
+         cat2__updatedate = NOW()
        WHERE cat2__uuid = $1
        RETURNING cat2__uuid`,
       [uuid]
@@ -383,7 +412,7 @@ async function softDeleteIndividual(req, res) {
       return res.end(
         JSON.stringify({
           success: false,
-          error: "Физлицо не найдено",
+          error: "Физическое лицо не найдено",
         })
       );
     }
@@ -392,7 +421,7 @@ async function softDeleteIndividual(req, res) {
     res.end(
       JSON.stringify({
         success: true,
-        message: "Физлицо удалено",
+        message: "Физическое лицо удалено",
       })
     );
   } catch (error) {
@@ -401,7 +430,7 @@ async function softDeleteIndividual(req, res) {
     res.end(
       JSON.stringify({
         success: false,
-        error: "Internal server error",
+        error: "Internal server error: " + error.message,
       })
     );
   }
@@ -415,7 +444,10 @@ async function restoreIndividual(req, res) {
 
     const result = await query(
       `UPDATE cat2__individuals 
-       SET cat2__deleted = false, cat2__deletedate = NULL, cat2__updatedate = NOW()
+       SET 
+         cat2__deleted = false, 
+         cat2__deletedate = NULL, 
+         cat2__updatedate = NOW()
        WHERE cat2__uuid = $1
        RETURNING cat2__uuid`,
       [uuid]
@@ -426,7 +458,7 @@ async function restoreIndividual(req, res) {
       return res.end(
         JSON.stringify({
           success: false,
-          error: "Физлицо не найдено",
+          error: "Физическое лицо не найдено",
         })
       );
     }
@@ -435,7 +467,7 @@ async function restoreIndividual(req, res) {
     res.end(
       JSON.stringify({
         success: true,
-        message: "Физлицо восстановлено",
+        message: "Физическое лицо восстановлено",
       })
     );
   } catch (error) {
@@ -444,24 +476,9 @@ async function restoreIndividual(req, res) {
     res.end(
       JSON.stringify({
         success: false,
-        error: "Internal server error",
+        error: "Internal server error: " + error.message,
       })
     );
-  }
-  function ping(req, res) {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ message: "pong" }));
-  }
-
-  async function dbTest(req, res) {
-    try {
-      const result = await query("SELECT NOW()");
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, time: result.rows[0].now }));
-    } catch (error) {
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: false, error: error.message }));
-    }
   }
 }
 

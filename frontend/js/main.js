@@ -650,8 +650,49 @@ async function createHomePage() {
   await nomenclatureManager.init("nomenclature-container");
 }
 
-// Универсальная функция для загрузки и создания страниц
-async function loadAndCreatePage(pageName, createFunctionName) {
+// 🔥 УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ ЗАГРУЗКИ И СОЗДАНИЯ СТРАНИЦ
+async function loadAndCreatePage(pageName) {
+  try {
+    console.log(`🚀 Загрузка страницы: ${pageName}`);
+
+    // Проверяем существование функции создания страницы
+    const pageFunction =
+      window[
+        `create${pageName.charAt(0).toUpperCase() + pageName.slice(1)}Page`
+      ];
+
+    if (typeof pageFunction === "function") {
+      console.log(
+        `✅ Функция create${
+          pageName.charAt(0).toUpperCase() + pageName.slice(1)
+        }Page найдена`
+      );
+      const pageContent = pageFunction();
+      return pageContent;
+    } else {
+      console.error(
+        `❌ Функция create${
+          pageName.charAt(0).toUpperCase() + pageName.slice(1)
+        }Page не найдена в window`
+      );
+      console.log(
+        "Доступные функции:",
+        Object.keys(window).filter((key) => key.startsWith("create"))
+      );
+      throw new Error(
+        `Функция create${
+          pageName.charAt(0).toUpperCase() + pageName.slice(1)
+        }Page не найдена`
+      );
+    }
+  } catch (error) {
+    console.error("Ошибка загрузки страницы:", error);
+    throw error;
+  }
+}
+
+// Универсальная функция для загрузки и создания страниц (старая версия для обратной совместимости)
+async function loadAndCreatePageOld(pageName, createFunctionName) {
   clearApp();
   const app = document.getElementById("app");
 
@@ -691,10 +732,10 @@ const routes = {
     await createHomePage();
   },
   page1: async () => {
-    await loadAndCreatePage("page1", "createPage1");
+    await loadAndCreatePageOld("page1", "createPage1");
   },
   individuals: async () => {
-    await loadAndCreatePage("individuals", "createIndividualsPage");
+    await loadAndCreatePageOld("individuals", "createIndividualsPage");
   },
 };
 
@@ -714,6 +755,11 @@ async function render() {
   }
 }
 
+// 🔥 ГЛОБАЛЬНЫЙ ЭКСПОРТ ФУНКЦИИ
+window.loadAndCreatePage = loadAndCreatePage;
+
 // Инициализация
 window.addEventListener("hashchange", render);
 window.addEventListener("DOMContentLoaded", render);
+
+console.log("📦 Main.js загружен с функцией loadAndCreatePage");
